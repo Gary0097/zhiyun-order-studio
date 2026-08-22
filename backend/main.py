@@ -28,6 +28,7 @@ except ImportError:
     from template_engine import match_order_template
 
 router = APIRouter()
+PLUGIN_VERSION = "0.5.2"
 
 
 class TextRequest(BaseModel):
@@ -50,7 +51,7 @@ class CompareRequest(BaseModel):
 
 @router.get("/health")
 async def health() -> dict[str, Any]:
-    return {"status": "available", "version": "0.5.0"}
+    return {"status": "available", "version": PLUGIN_VERSION}
 
 
 @router.post("/parse-text")
