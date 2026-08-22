@@ -14,6 +14,9 @@
     var text = textState[0], setText = textState[1];
     var resultState = React.useState(null), result = resultState[0], setResult = resultState[1];
     var templateState = React.useState(null), templateResult = templateState[0], setTemplateResult = templateState[1];
+    var contractTextState = React.useState("甲方：智造云制造；乙方：华东供应商；合同金额：100000元；付款方式：100%预付；交货日期：2026年9月1日；违约责任：乙方承担全部损失；争议由甲方所在地法院管辖。"), contractText = contractTextState[0], setContractText = contractTextState[1];
+    var contractState = React.useState(null), contractResult = contractState[0], setContractResult = contractState[1];
+    var positionState = React.useState("采购方"), userPosition = positionState[0], setUserPosition = positionState[1];
     var draftState = React.useState({}), draft = draftState[0], setDraft = draftState[1];
     var loadingState = React.useState(false), loading = loadingState[0], setLoading = loadingState[1];
     var message = antd.App.useApp().message;
@@ -35,6 +38,13 @@
       }).catch(function (e) { message.error(e.message); }).finally(function () { setLoading(false); });
     }
     function update(name, value) { var next = Object.assign({}, draft); next[name] = value; setDraft(next); }
+    function reviewContract() {
+      setLoading(true);
+      request("/zhiyun-order-studio/contracts/review", { text: contractText, user_position: userPosition })
+        .then(function (data) { setContractResult(data); })
+        .catch(function (e) { message.error(e.message); })
+        .finally(function () { setLoading(false); });
+    }
     function confirm() {
       var missing = fields.filter(function (item) { return item[2] && (draft[item[0]] === null || draft[item[0]] === undefined || draft[item[0]] === ""); });
       if (missing.length) { message.warning("请补齐：" + missing.map(function (item) { return item[1]; }).join("、")); return; }
@@ -76,7 +86,31 @@
           }))
         ),
         h(antd.Card, { title: "提取证据", style: { marginTop: 16 } }, h(antd.List, { dataSource: result.evidence, renderItem: function (item) { return h(antd.List.Item, null, h(antd.Tag, null, evidenceLabels[item.field] || item.field), item.source); } }))
-      ) : null
+      ) : null,
+      h(antd.Card, { title: "合同要素提取与风险初筛", style: { marginTop: 20 } },
+        h("div", { style: { display: "flex", gap: 12, marginBottom: 12, alignItems: "center" } },
+          h("span", null, "我方身份"),
+          h(antd.Select, { value: userPosition, style: { width: 150 }, options: ["采购方", "供应方"].map(function (value) { return { value: value, label: value }; }), onChange: setUserPosition })
+        ),
+        h(antd.Input.TextArea, { value: contractText, rows: 7, onChange: function (e) { setContractText(e.target.value); }, placeholder: "粘贴合同文本；PDF/Word可先在工作区文件中提取文本" }),
+        h(antd.Button, { type: "primary", loading: loading, onClick: reviewContract, style: { marginTop: 12 } }, "提取并检查风险"),
+        contractResult ? h(React.Fragment, null,
+          h(antd.Alert, { style: { marginTop: 16 }, showIcon: true, type: contractResult.overall_risk === "high" ? "error" : contractResult.overall_risk === "medium" ? "warning" : "success", message: "总体风险：" + contractResult.overall_risk, description: contractResult.disclaimer }),
+          h(antd.Descriptions, { bordered: true, size: "small", column: 2, style: { marginTop: 16 }, items: [
+            ["contract_no", "合同编号"], ["party_a", "甲方/买方"], ["party_b", "乙方/卖方"], ["amount", "合同金额"],
+            ["payment_terms", "付款条款"], ["delivery_terms", "交付条件"], ["breach_terms", "违约责任"], ["governing_law", "争议解决"]
+          ].map(function (item) { return { key: item[0], label: item[1], children: contractResult.contract[item[0]] || h(antd.Tag, { color: "red" }, "未提取") }; }) }),
+          contractResult.missing_clauses.length ? h(antd.Alert, { style: { marginTop: 16 }, type: "warning", showIcon: true, message: "缺失条款：" + contractResult.missing_clauses.join("、") }) : null,
+          h(antd.List, { style: { marginTop: 12 }, header: h("strong", null, "风险清单与修改建议"), dataSource: contractResult.findings, locale: { emptyText: "未命中当前规则库中的明显风险，仍需人工复核" }, renderItem: function (item) {
+            var color = item.level === "high" ? "red" : item.level === "medium" ? "orange" : "green";
+            return h(antd.List.Item, null, h("div", null,
+              h(antd.Tag, { color: color }, item.level.toUpperCase()), h("strong", null, item.category + "：" + item.issue),
+              h("div", { style: { color: "#667085", marginTop: 6 } }, "原文/依据：" + item.evidence),
+              h("div", { style: { marginTop: 4 } }, "建议：" + item.suggestion)
+            ));
+          } })
+        ) : null
+      )
     ));
   }
   Q.registerRoutes("zhiyun-order-studio", [{ path: "/apps/zhiyun-order-studio", component: OrderStudio, label: "Order Studio", icon: "📋", priority: 88 }]);
