@@ -1,9 +1,9 @@
 {
   "id": "zhiyun-order-studio",
   "name": "Order Studio",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "app",
-  "description": "将客户订单格式化并匹配标准、FOB出口、代工/OEM或促销处理模板。",
+  "description": "格式化客户订单、匹配处理模板，并对合同关键要素和风险条款进行证据化初筛。",
   "author": "Zhiyun AI",
   "entry": { "backend": "backend/main.py", "frontend": "ui/index.js" },
   "dependencies": [],
