@@ -13,6 +13,7 @@
     var textState = React.useState("订单号：PO-20260822-01；下单日期：2026年8月22日；客户：海川制造；产品：伺服电机；数量：20台；交期：2026年9月10日");
     var text = textState[0], setText = textState[1];
     var resultState = React.useState(null), result = resultState[0], setResult = resultState[1];
+    var templateState = React.useState(null), templateResult = templateState[0], setTemplateResult = templateState[1];
     var draftState = React.useState({}), draft = draftState[0], setDraft = draftState[1];
     var loadingState = React.useState(false), loading = loadingState[0], setLoading = loadingState[1];
     var message = antd.App.useApp().message;
@@ -23,8 +24,14 @@
     ];
     function run() {
       setLoading(true);
-      request("/zhiyun-order-studio/parse-text", { text: text }).then(function (data) {
-        setResult(data); setDraft(Object.assign({}, data.order, { status: data.order.status || "待排产", progress: data.order.progress == null ? 0 : data.order.progress }));
+      Promise.all([
+        request("/zhiyun-order-studio/parse-text", { text: text }),
+        request("/zhiyun-order-studio/templates/match", { text: text })
+      ]).then(function (responses) {
+        var data = responses[0];
+        setResult(data);
+        setTemplateResult(responses[1]);
+        setDraft(Object.assign({}, data.order, { status: data.order.status || "待排产", progress: data.order.progress == null ? 0 : data.order.progress }));
       }).catch(function (e) { message.error(e.message); }).finally(function () { setLoading(false); });
     }
     function update(name, value) { var next = Object.assign({}, draft); next[name] = value; setDraft(next); }
@@ -47,6 +54,18 @@
       h(antd.Button, { type: "primary", loading: loading, onClick: run, style: { marginTop: 12 } }, "解析订单"),
       result ? h(React.Fragment, null,
         h(antd.Alert, { style: { marginTop: 16 }, type: result.ready_for_review ? "success" : "warning", showIcon: true, message: result.ready_for_review ? "关键字段已提取，请人工确认" : "订单信息不完整，请在表单中补充", description: "系统不会自动提交，只有点击确认后才会写入真实订单数据。" }),
+        templateResult ? h(antd.Card, { title: "推荐处理模板", style: { marginTop: 16 }, extra: h(antd.Tag, { color: templateResult.confidence === "high" ? "green" : "blue" }, "置信度 " + templateResult.confidence) },
+          h("div", { style: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" } },
+            h("strong", { style: { fontSize: 18 } }, templateResult.template.name),
+            h(antd.Tag, { color: "geekblue" }, "匹配分 " + templateResult.template.score)
+          ),
+          h("p", { style: { color: "#667085", marginTop: 8 } }, templateResult.reason),
+          h("div", { style: { marginTop: 12, fontWeight: 600 } }, "需要补齐的信息"),
+          h("div", { style: { marginTop: 8 } }, templateResult.template.required_fields.map(function (field) { return h(antd.Tag, { key: field, style: { marginBottom: 6 } }, field); })),
+          h("div", { style: { marginTop: 12, fontWeight: 600 } }, "建议处理路径"),
+          h(antd.Steps, { direction: "vertical", size: "small", current: -1, style: { marginTop: 10 }, items: templateResult.template.process_steps.map(function (step) { return { title: step }; }) }),
+          h(antd.Alert, { type: "warning", showIcon: true, message: "模板和处理路径仅为推荐，须由业务人员确认后执行。" })
+        ) : null,
         h(antd.Card, { title: "标准工单确认", style: { marginTop: 16 }, extra: h(antd.Button, { type: "primary", loading: loading, onClick: confirm }, "确认并写入数据库") },
           h("div", { style: { display: "grid", gridTemplateColumns: "repeat(2,minmax(260px,1fr))", gap: 12 } }, fields.map(function (item) {
             var name = item[0];
