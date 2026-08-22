@@ -68,6 +68,12 @@ class OrderWorkflowTests(unittest.TestCase):
         self.assertEqual(project["runs"][0]["error_code"], "parse_failed")
         self.assertEqual(project["runs"][0]["steps"][0]["status"], "failed")
 
+    def test_database_can_be_removed_immediately_after_use_on_windows(self) -> None:
+        database = Path(self.temp.name) / "workflow.db"
+        self.store.create_project(COMPLETE, "email")
+        database.unlink()
+        self.assertFalse(database.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
