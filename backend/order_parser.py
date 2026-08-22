@@ -13,6 +13,8 @@ ORDER_NO_PATTERN = re.compile(r"(?:订单号|采购单号|PO号|PO)\s*[：:#]?\s
 QUANTITY_PATTERN = re.compile(r"(?:数量|订购|采购)\s*[：:]?\s*(\d+(?:\.\d+)?)\s*(台|件|套|个|箱|吨|kg|千克)?", re.I)
 CUSTOMER_PATTERN = re.compile(r"(?:客户|公司|采购方|甲方)\s*[：:]?\s*([^，,；;\n]{2,40})")
 PRODUCT_PATTERN = re.compile(r"(?:品名|产品|物料|设备)\s*[：:]?\s*([^，,；;\n]{2,60})")
+UNIT_PRICE_PATTERN = re.compile(r"(?:单价)\s*[：:]?\s*[￥¥]?([\d,.]+)")
+PAYMENT_RATIO_PATTERN = re.compile(r"(?:付款比例|预付款比例|首付款比例)\s*[：:]?\s*(\d+(?:\.\d+)?)%")
 
 
 def _normalize_date(value: str) -> str | None:
@@ -35,6 +37,8 @@ def parse_order_text(text: str) -> dict[str, Any]:
     delivery = DATE_PATTERN.search(source)
     order_date = ORDER_DATE_PATTERN.search(source)
     order_no = ORDER_NO_PATTERN.search(source)
+    unit_price = UNIT_PRICE_PATTERN.search(source)
+    payment_ratio = PAYMENT_RATIO_PATTERN.search(source)
     order = {
         "order_no": order_no.group(1).strip() if order_no else None,
         "customer_name": customer.group(1).strip() if customer else None,
@@ -42,6 +46,8 @@ def parse_order_text(text: str) -> dict[str, Any]:
         "quantity": float(quantity.group(1)) if quantity else None,
         "unit": quantity.group(2) if quantity and quantity.group(2) else None,
         "promised_date": _normalize_date(delivery.group(1)) if delivery else None,
+        "unit_price": float(unit_price.group(1).replace(",", "")) if unit_price else None,
+        "payment_ratio": float(payment_ratio.group(1)) if payment_ratio else None,
         "order_date": _normalize_date(order_date.group(1)) if order_date else None,
         "status": None,
         "progress": None,
@@ -50,7 +56,7 @@ def parse_order_text(text: str) -> dict[str, Any]:
     required = ["order_no", "customer_name", "product_name", "quantity", "order_date", "promised_date"]
     missing = [field for field in required if order[field] in (None, "")]
     evidence = []
-    for field, match in [("order_no", order_no), ("customer_name", customer), ("product_name", product), ("quantity", quantity), ("order_date", order_date), ("promised_date", delivery)]:
+    for field, match in [("order_no", order_no), ("customer_name", customer), ("product_name", product), ("quantity", quantity), ("order_date", order_date), ("promised_date", delivery), ("unit_price", unit_price), ("payment_ratio", payment_ratio)]:
         if match:
             evidence.append({"field": field, "source": match.group(0)})
     return {
