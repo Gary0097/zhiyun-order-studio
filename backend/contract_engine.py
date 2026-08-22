@@ -8,6 +8,7 @@ review aid, not a substitute for legal advice.
 from __future__ import annotations
 
 import re
+from datetime import date
 from typing import Any
 
 
@@ -16,6 +17,11 @@ FIELD_PATTERNS = {
     "party_a": [r"(?:甲方|买方|采购方)\s*[：:]\s*([^\n；;]+)"],
     "party_b": [r"(?:乙方|卖方|供应方)\s*[：:]\s*([^\n；;]+)"],
     "amount": [r"(?:合同总?金额|总价|价款)\s*[：:]?\s*([人民币￥¥]?[\d,.]+\s*元?)"],
+    "product_name": [r"(?:品名|产品|物料|设备)\s*[：:]?\s*([^，,；;\n]{2,60})"],
+    "quantity": [r"(?:数量|订购|采购)\s*[：:]?\s*(\d+(?:\.\d+)?)"],
+    "unit_price": [r"(?:单价)\s*[：:]?\s*[￥¥]?([\d,.]+)"],
+    "promised_date": [r"(?:交期|交货日期|要求到货|到货日期)\s*[：:]?\s*(\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?)"],
+    "payment_ratio": [r"(?:付款比例|预付款比例|首付款比例)\s*[：:]?\s*(\d+(?:\.\d+)?)%"],
     "payment_terms": [r"((?:付款|支付)[^。；;\n]{2,80})"],
     "delivery_terms": [r"((?:交付|交货)[^。；;\n]{2,80})"],
     "breach_terms": [r"((?:违约|赔偿)[^。；;\n]{2,100})"],
@@ -36,6 +42,19 @@ def _finding(level: str, category: str, evidence: str, issue: str, suggestion: s
     return {"level": level, "category": category, "evidence": evidence, "issue": issue, "suggestion": suggestion}
 
 
+def _normalize_fields(fields: dict[str, Any]) -> None:
+    for key in ("quantity", "unit_price", "payment_ratio"):
+        if fields.get(key) is not None:
+            fields[key] = float(str(fields[key]).replace(",", ""))
+    if fields.get("promised_date"):
+        clean = str(fields["promised_date"]).replace("年", "-").replace("月", "-").replace("日", "").replace("/", "-").replace(".", "-")
+        try:
+            parts = clean.split("-")
+            fields["promised_date"] = date(int(parts[0]), int(parts[1]), int(parts[2])).isoformat()
+        except (ValueError, IndexError):
+            fields["promised_date"] = None
+
+
 def review_contract_text(text: str, user_position: str = "采购方") -> dict[str, Any]:
     if not text or not text.strip():
         raise ValueError("合同文本不能为空")
@@ -47,6 +66,7 @@ def review_contract_text(text: str, user_position: str = "采购方") -> dict[st
         fields[field] = value
         if source:
             evidence.append({"field": field, "source": source})
+    _normalize_fields(fields)
 
     findings: list[dict[str, str]] = []
     blanks = re.findall(r"(?:TBD|待定|____+|\[\s*(?:金额|日期|名称|填写)\s*\])", text, re.IGNORECASE)
