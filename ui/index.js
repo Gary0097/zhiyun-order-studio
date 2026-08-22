@@ -16,6 +16,7 @@
     var templateState = React.useState(null), templateResult = templateState[0], setTemplateResult = templateState[1];
     var contractTextState = React.useState("甲方：智造云制造；乙方：华东供应商；合同金额：100000元；付款方式：100%预付；交货日期：2026年9月1日；违约责任：乙方承担全部损失；争议由甲方所在地法院管辖。"), contractText = contractTextState[0], setContractText = contractTextState[1];
     var contractState = React.useState(null), contractResult = contractState[0], setContractResult = contractState[1];
+    var compareState = React.useState(null), compareResult = compareState[0], setCompareResult = compareState[1];
     var positionState = React.useState("采购方"), userPosition = positionState[0], setUserPosition = positionState[1];
     var draftState = React.useState({}), draft = draftState[0], setDraft = draftState[1];
     var loadingState = React.useState(false), loading = loadingState[0], setLoading = loadingState[1];
@@ -42,6 +43,26 @@
       setLoading(true);
       request("/zhiyun-order-studio/contracts/review", { text: contractText, user_position: userPosition })
         .then(function (data) { setContractResult(data); })
+        .catch(function (e) { message.error(e.message); })
+        .finally(function () { setLoading(false); });
+    }
+    function importContractFile(file) {
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var encoded = String(reader.result).split(",")[1];
+        setLoading(true);
+        request("/zhiyun-order-studio/contracts/extract-file", { filename: file.name, content_base64: encoded })
+          .then(function (data) { setContractText(data.text); setContractResult(null); setCompareResult(null); message.success("已提取 " + data.characters + " 个字符"); })
+          .catch(function (e) { message.error(e.message); })
+          .finally(function () { setLoading(false); });
+      };
+      reader.readAsDataURL(file);
+    }
+    function compareContract() {
+      setLoading(true);
+      request("/zhiyun-order-studio/contracts/compare-order", { order_text: text, contract_text: contractText })
+        .then(function (data) { setCompareResult(data); })
         .catch(function (e) { message.error(e.message); })
         .finally(function () { setLoading(false); });
     }
@@ -93,7 +114,13 @@
           h(antd.Select, { value: userPosition, style: { width: 150 }, options: ["采购方", "供应方"].map(function (value) { return { value: value, label: value }; }), onChange: setUserPosition })
         ),
         h(antd.Input.TextArea, { value: contractText, rows: 7, onChange: function (e) { setContractText(e.target.value); }, placeholder: "粘贴合同文本；PDF/Word可先在工作区文件中提取文本" }),
-        h(antd.Button, { type: "primary", loading: loading, onClick: reviewContract, style: { marginTop: 12 } }, "提取并检查风险"),
+        h("div", { style: { display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" } },
+          h(antd.Button, { type: "primary", loading: loading, onClick: reviewContract }, "提取并检查风险"),
+          h(antd.Button, { loading: loading, onClick: compareContract }, "与上方订单核对"),
+          h("label", { style: { display: "inline-flex", alignItems: "center", padding: "4px 15px", border: "1px solid #d9d9d9", borderRadius: 6, cursor: "pointer", background: "#fff" } }, "导入合同文件",
+            h("input", { type: "file", accept: ".txt,.md,.docx,.pdf", style: { display: "none" }, onChange: function (e) { importContractFile(e.target.files[0]); e.target.value = ""; } })
+          )
+        ),
         contractResult ? h(React.Fragment, null,
           h(antd.Alert, { style: { marginTop: 16 }, showIcon: true, type: contractResult.overall_risk === "high" ? "error" : contractResult.overall_risk === "medium" ? "warning" : "success", message: "总体风险：" + contractResult.overall_risk, description: contractResult.disclaimer }),
           h(antd.Descriptions, { bordered: true, size: "small", column: 2, style: { marginTop: 16 }, items: [
@@ -109,6 +136,13 @@
               h("div", { style: { marginTop: 4 } }, "建议：" + item.suggestion)
             ));
           } })
+        ) : null,
+        compareResult ? h(antd.Card, { size: "small", title: "订单—合同一致性验证", style: { marginTop: 16 } },
+          h(antd.Alert, { showIcon: true, type: compareResult.consistent ? "success" : "error", message: compareResult.consistent ? "已比较字段未发现差异" : compareResult.summary, description: "比较结果不会自动修改订单或合同，所有差异必须由业务人员确认。" }),
+          h(antd.List, { style: { marginTop: 10 }, dataSource: compareResult.differences, locale: { emptyText: "无已确认差异" }, renderItem: function (item) {
+            return h(antd.List.Item, null, h(antd.Tag, { color: "red" }, item.field), "订单：" + item.order_value + "；合同：" + item.contract_value);
+          } }),
+          compareResult.unavailable_fields.length ? h(antd.Collapse, { items: [{ key: "missing", label: "无法比较的字段（" + compareResult.unavailable_fields.length + "）", children: h(antd.List, { size: "small", dataSource: compareResult.unavailable_fields, renderItem: function (item) { return h(antd.List.Item, null, item.field + "：" + item.reason); } }) }] }) : null
         ) : null
       )
     ));
