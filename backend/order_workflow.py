@@ -16,8 +16,10 @@ from typing import Any
 
 try:
     from .order_parser import parse_order_text
+    from .exception_engine import build_exception_recommendation
 except ImportError:
     from order_parser import parse_order_text
+    from exception_engine import build_exception_recommendation
 
 CHANNELS = {"wechat", "email", "ocr"}
 
@@ -63,6 +65,15 @@ class OrderWorkflowStore:
                 CREATE TABLE IF NOT EXISTS reviews (
                     id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id), artifact_id TEXT NOT NULL REFERENCES artifacts(id),
                     action TEXT NOT NULL, reviewer TEXT NOT NULL, note TEXT, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS exception_cases (
+                    id TEXT PRIMARY KEY, project_id TEXT REFERENCES projects(id), order_text TEXT NOT NULL,
+                    contract_text TEXT NOT NULL, status TEXT NOT NULL, recommendation_json TEXT NOT NULL,
+                    retry_count INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS exception_reviews (
+                    id TEXT PRIMARY KEY, case_id TEXT NOT NULL REFERENCES exception_cases(id), action TEXT NOT NULL,
+                    reviewer TEXT NOT NULL, selected_path TEXT, wording TEXT, note TEXT, created_at TEXT NOT NULL
                 );
             """)
 
@@ -154,3 +165,92 @@ class OrderWorkflowStore:
             writer.writeheader(); writer.writerow(payload)
             return "\ufeff" + stream.getvalue(), "text/csv"
         raise ValueError("导出格式必须是 json 或 csv")
+
+    def create_exception(self, order_text: str, contract_text: str, project_id: str | None = None) -> dict[str, Any]:
+        if not order_text.strip() or not contract_text.strip():
+            raise ValueError("订单原文和合同原文不能为空")
+        if project_id is not None:
+            self.get_project(project_id)
+        recommendation = build_exception_recommendation(order_text, contract_text)
+        case_id, now = str(uuid.uuid4()), _now()
+        similar = self._similar_resolved(recommendation["categories"])
+        recommendation["similar_resolved_cases"] = similar
+        with closing(self._connect()) as db, db:
+            db.execute(
+                "INSERT INTO exception_cases VALUES (?,?,?,?,?,?,?,?,?)",
+                (case_id, project_id, order_text, contract_text, recommendation["status"],
+                 json.dumps(recommendation, ensure_ascii=False), 0, now, now),
+            )
+        return self.get_exception(case_id)
+
+    def _similar_resolved(self, categories: list[str], limit: int = 3) -> list[dict[str, Any]]:
+        if not categories:
+            return []
+        matches = []
+        with closing(self._connect()) as db, db:
+            rows = db.execute(
+                "SELECT id, recommendation_json, updated_at FROM exception_cases WHERE status='accepted' ORDER BY updated_at DESC"
+            ).fetchall()
+            for row in rows:
+                payload = json.loads(row["recommendation_json"])
+                overlap = sorted(set(categories) & set(payload.get("categories", [])))
+                if overlap:
+                    review = db.execute(
+                        "SELECT selected_path, wording, note, reviewer, created_at FROM exception_reviews WHERE case_id=? AND action='accept' ORDER BY created_at DESC LIMIT 1",
+                        (row["id"],),
+                    ).fetchone()
+                    if review:
+                        matches.append({"case_id": row["id"], "matched_categories": overlap, **dict(review)})
+                if len(matches) >= limit:
+                    break
+        return matches
+
+    def get_exception(self, case_id: str) -> dict[str, Any]:
+        with closing(self._connect()) as db, db:
+            row = db.execute("SELECT * FROM exception_cases WHERE id=?", (case_id,)).fetchone()
+            if not row:
+                raise KeyError(case_id)
+            reviews = [dict(item) for item in db.execute(
+                "SELECT * FROM exception_reviews WHERE case_id=? ORDER BY created_at", (case_id,)
+            )]
+            result = dict(row)
+            result["recommendation"] = json.loads(result.pop("recommendation_json"))
+            result["reviews"] = reviews
+            return result
+
+    def review_exception(self, case_id: str, action: str, reviewer: str, selected_path: str | None = None,
+                         wording: str | None = None, note: str | None = None) -> dict[str, Any]:
+        if action not in {"accept", "reject"}:
+            raise ValueError("异常处理动作必须是 accept 或 reject")
+        if not reviewer.strip():
+            raise ValueError("审阅人不能为空")
+        case = self.get_exception(case_id)
+        if case["status"] == "no_exception":
+            raise ValueError("当前记录没有需要处理的异常")
+        if action == "accept" and (not selected_path or not wording):
+            raise ValueError("接受异常方案前必须确认处理路径和回复话术")
+        now = _now()
+        with closing(self._connect()) as db, db:
+            db.execute("INSERT INTO exception_reviews VALUES (?,?,?,?,?,?,?,?)", (
+                str(uuid.uuid4()), case_id, action, reviewer.strip(), selected_path, wording, note, now))
+            db.execute("UPDATE exception_cases SET status=?, updated_at=? WHERE id=?", (
+                "accepted" if action == "accept" else "rejected", now, case_id))
+        return self.get_exception(case_id)
+
+    def retry_exception(self, case_id: str) -> dict[str, Any]:
+        case = self.get_exception(case_id)
+        recommendation = build_exception_recommendation(case["order_text"], case["contract_text"])
+        recommendation["similar_resolved_cases"] = self._similar_resolved(recommendation["categories"])
+        now = _now()
+        with closing(self._connect()) as db, db:
+            db.execute(
+                "UPDATE exception_cases SET status=?, recommendation_json=?, retry_count=retry_count+1, updated_at=? WHERE id=?",
+                (recommendation["status"], json.dumps(recommendation, ensure_ascii=False), now, case_id),
+            )
+        return self.get_exception(case_id)
+
+    def export_exception(self, case_id: str) -> tuple[str, str]:
+        case = self.get_exception(case_id)
+        if case["status"] != "accepted":
+            raise ValueError("只有已接受的异常方案可以导出")
+        return json.dumps(case, ensure_ascii=False, indent=2), "application/json"
