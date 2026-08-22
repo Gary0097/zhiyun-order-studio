@@ -118,28 +118,28 @@ class OrderStudioPlugin:
             tool_func=format_customer_order,
             description="从微信、邮件或OCR结果文本中提取客户、产品、数量和交期，返回原文证据、缺失字段和待人工确认的标准工单。",
             icon="📋",
-            tool_type="filesystem",
+            tool_type="file",
         )
         api.register_tool(
             tool_name="extract_and_review_contract",
             tool_func=extract_and_review_contract,
             description="提取合同双方、金额、付款、交付、违约和争议条款，返回原文证据、缺失项与红黄绿风险初筛；不构成法律意见。",
             icon="📑",
-            tool_type="filesystem",
+            tool_type="file",
         )
         api.register_tool(
             tool_name="recommend_order_template",
             tool_func=recommend_order_template,
             description="识别标准、FOB出口、代工/OEM或促销订单，返回命中依据、必填信息与处理步骤；结果必须人工确认。",
             icon="🧩",
-            tool_type="filesystem",
+            tool_type="internal",
         )
         api.register_tool(
             tool_name="verify_order_contract_consistency",
             tool_func=verify_order_contract_consistency,
             description="对比订单与合同的客户、产品、数量、交期、单价和付款比例，返回差异与缺失字段；结果必须人工确认。",
             icon="🔎",
-            tool_type="filesystem",
+            tool_type="internal",
         )
 
 
