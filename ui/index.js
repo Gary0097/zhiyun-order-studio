@@ -17,6 +17,9 @@
     var contractTextState = React.useState(""), contractText = contractTextState[0], setContractText = contractTextState[1];
     var contractState = React.useState(null), contractResult = contractState[0], setContractResult = contractState[1];
     var compareState = React.useState(null), compareResult = compareState[0], setCompareResult = compareState[1];
+    var exceptionState = React.useState(null), exceptionCase = exceptionState[0], setExceptionCase = exceptionState[1];
+    var exceptionPathState = React.useState(""), exceptionPath = exceptionPathState[0], setExceptionPath = exceptionPathState[1];
+    var exceptionWordingState = React.useState(""), exceptionWording = exceptionWordingState[0], setExceptionWording = exceptionWordingState[1];
     var positionState = React.useState("采购方"), userPosition = positionState[0], setUserPosition = positionState[1];
     var draftState = React.useState({}), draft = draftState[0], setDraft = draftState[1];
     var loadingState = React.useState(false), loading = loadingState[0], setLoading = loadingState[1];
@@ -68,6 +71,29 @@
         .then(function (data) { setCompareResult(data); })
         .catch(function (e) { message.error(e.message); })
         .finally(function () { setLoading(false); });
+    }
+    function createException() {
+      if (!text.trim() || !contractText.trim()) { message.warning("请先填写订单和合同原文"); return; }
+      setLoading(true);
+      request("/zhiyun-order-studio/exceptions", { order_text: text, contract_text: contractText, project_id: project ? project.id : null })
+        .then(function (data) {
+          setExceptionCase(data);
+          var first = data.recommendation.recommendations[0];
+          setExceptionPath(first ? first.handling_path.join(" → ") : "");
+          setExceptionWording(first ? first.suggested_wording : "");
+        }).catch(function (e) { message.error(e.message); }).finally(function () { setLoading(false); });
+    }
+    function decideException(action) {
+      if (!reviewer.trim()) { message.warning("请输入审阅人"); return; }
+      request("/zhiyun-order-studio/exceptions/" + exceptionCase.id + "/reviews", {
+        action: action, reviewer: reviewer, selected_path: exceptionPath, wording: exceptionWording
+      }).then(function (data) { setExceptionCase(data); message.success(action === "accept" ? "异常方案已接受" : "异常方案已驳回"); })
+        .catch(function (e) { message.error(e.message); });
+    }
+    function retryException() {
+      request("/zhiyun-order-studio/exceptions/" + exceptionCase.id + "/retry", {})
+        .then(function (data) { setExceptionCase(data); message.success("已根据原始证据重新生成建议"); })
+        .catch(function (e) { message.error(e.message); });
     }
     function confirm() {
       var missing = fields.filter(function (item) { return item[2] && (draft[item[0]] === null || draft[item[0]] === undefined || draft[item[0]] === ""); });
@@ -130,6 +156,7 @@
         h("div", { style: { display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" } },
           h(antd.Button, { type: "primary", loading: loading, onClick: reviewContract }, "提取并检查风险"),
           h(antd.Button, { loading: loading, onClick: compareContract }, "与上方订单核对"),
+          h(antd.Button, { danger: true, loading: loading, onClick: createException }, "创建异常处理方案"),
           h("label", { style: { display: "inline-flex", alignItems: "center", padding: "4px 15px", border: "1px solid #d9d9d9", borderRadius: 6, cursor: "pointer", background: "#fff" } }, "导入合同文件",
             h("input", { type: "file", accept: ".txt,.md,.docx,.pdf", style: { display: "none" }, onChange: function (e) { importContractFile(e.target.files[0]); e.target.value = ""; } })
           )
@@ -156,6 +183,23 @@
             return h(antd.List.Item, null, h(antd.Tag, { color: "red" }, item.field), "订单：" + item.order_value + "；合同：" + item.contract_value);
           } }),
           compareResult.unavailable_fields.length ? h(antd.Collapse, { items: [{ key: "missing", label: "无法比较的字段（" + compareResult.unavailable_fields.length + "）", children: h(antd.List, { size: "small", dataSource: compareResult.unavailable_fields, renderItem: function (item) { return h(antd.List.Item, null, item.field + "：" + item.reason); } }) }] }) : null
+        ) : null,
+        exceptionCase ? h(antd.Card, { size: "small", title: "异常处理工作台", style: { marginTop: 16 }, extra: h(antd.Tag, { color: exceptionCase.status === "accepted" ? "green" : exceptionCase.status === "rejected" ? "red" : "orange" }, exceptionCase.status) },
+          h(antd.Alert, { showIcon: true, type: "warning", message: exceptionCase.recommendation.disclaimer, description: "异常类别：" + (exceptionCase.recommendation.categories.join("、") || "无") }),
+          h(antd.List, { style: { marginTop: 12 }, dataSource: exceptionCase.recommendation.recommendations, locale: { emptyText: "当前证据未发现需处理的异常" }, renderItem: function (item) {
+            return h(antd.List.Item, null, h("div", { style: { width: "100%" } }, h("strong", null, item.title), h("div", { style: { color: "#667085", marginTop: 4 } }, item.category + " · " + item.handling_path.join(" → ")), h("div", { style: { marginTop: 4 } }, item.suggested_wording)));
+          } }),
+          exceptionCase.recommendation.similar_resolved_cases.length ? h(antd.Collapse, { items: [{ key: "similar", label: "真实历史相似处理（" + exceptionCase.recommendation.similar_resolved_cases.length + "）", children: h(antd.List, { size: "small", dataSource: exceptionCase.recommendation.similar_resolved_cases, renderItem: function (item) { return h(antd.List.Item, null, item.matched_categories.join("、") + " · " + item.selected_path + " · 审阅人 " + item.reviewer); } }) }] }) : null,
+          h("div", { style: { marginTop: 12, display: "grid", gap: 8 } },
+            h(antd.Input.TextArea, { value: exceptionPath, rows: 2, onChange: function (e) { setExceptionPath(e.target.value); }, placeholder: "确认或调整处理路径" }),
+            h(antd.Input.TextArea, { value: exceptionWording, rows: 3, onChange: function (e) { setExceptionWording(e.target.value); }, placeholder: "确认或调整对外回复话术" }),
+            h("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+              h(antd.Button, { type: "primary", disabled: exceptionCase.status === "no_exception", onClick: function () { decideException("accept"); } }, "接受异常方案"),
+              h(antd.Button, { danger: true, disabled: exceptionCase.status === "no_exception", onClick: function () { decideException("reject"); } }, "驳回"),
+              h(antd.Button, { onClick: retryException }, "重试/恢复"),
+              h(antd.Button, { disabled: exceptionCase.status !== "accepted", onClick: function () { window.open("/zhiyun-order-studio/exceptions/" + exceptionCase.id + "/export", "_blank"); } }, "导出异常方案")
+            )
+          )
         ) : null
       )
     ));

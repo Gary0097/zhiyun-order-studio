@@ -31,7 +31,7 @@ except ImportError:
     from template_engine import match_order_template
 
 router = APIRouter()
-PLUGIN_VERSION = "0.6.0"
+PLUGIN_VERSION = "0.7.0"
 
 
 def _store() -> OrderWorkflowStore:
@@ -70,6 +70,20 @@ class ReviewRequest(BaseModel):
     reviewer: str = Field(min_length=1, max_length=100)
     note: str | None = Field(default=None, max_length=1000)
     order: dict[str, Any] | None = None
+
+
+class ExceptionRequest(BaseModel):
+    order_text: str = Field(min_length=1, max_length=20000)
+    contract_text: str = Field(min_length=1, max_length=50000)
+    project_id: str | None = None
+
+
+class ExceptionReviewRequest(BaseModel):
+    action: str
+    reviewer: str = Field(min_length=1, max_length=100)
+    selected_path: str | None = Field(default=None, max_length=2000)
+    wording: str | None = Field(default=None, max_length=5000)
+    note: str | None = Field(default=None, max_length=2000)
 
 
 @router.get("/health")
@@ -160,6 +174,57 @@ async def compare_contract_order(request: CompareRequest) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.post("/exceptions")
+async def create_exception(request: ExceptionRequest) -> dict[str, Any]:
+    try:
+        return _store().create_exception(request.order_text, request.contract_text, request.project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="订单项目不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=503, detail=f"持久化依赖不可用：{exc}") from exc
+
+
+@router.get("/exceptions/{case_id}")
+async def get_exception(case_id: str) -> dict[str, Any]:
+    try:
+        return _store().get_exception(case_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="异常记录不存在") from exc
+
+
+@router.post("/exceptions/{case_id}/reviews")
+async def review_exception(case_id: str, request: ExceptionReviewRequest) -> dict[str, Any]:
+    try:
+        return _store().review_exception(case_id, request.action, request.reviewer,
+                                         request.selected_path, request.wording, request.note)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="异常记录不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/exceptions/{case_id}/retry")
+async def retry_exception(case_id: str) -> dict[str, Any]:
+    try:
+        return _store().retry_exception(case_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="异常记录不存在") from exc
+
+
+@router.get("/exceptions/{case_id}/export")
+async def export_exception(case_id: str) -> Response:
+    try:
+        content, media_type = _store().export_exception(case_id)
+        return Response(content=content, media_type=media_type,
+                        headers={"Content-Disposition": 'attachment; filename="exception-plan.json"'})
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="异常记录不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 def format_customer_order(text: str) -> dict[str, Any]:
     """Extract a reviewable standard work order from customer text."""
     return parse_order_text(text)
@@ -183,6 +248,11 @@ def extract_and_review_contract(text: str, user_position: str = "采购方") -> 
 def verify_order_contract_consistency(order_text: str, contract_text: str) -> dict[str, Any]:
     """Compare order and contract values without modifying either source."""
     return compare_order_contract(order_text, contract_text)
+
+
+def run_order_exception_workflow(order_text: str, contract_text: str) -> dict[str, Any]:
+    """Create a durable exception case with evidence-based paths and wording."""
+    return _store().create_exception(order_text, contract_text)
 
 
 class OrderStudioPlugin:
@@ -221,6 +291,13 @@ class OrderStudioPlugin:
             tool_func=verify_order_contract_consistency,
             description="对比订单与合同的客户、产品、数量、交期、单价和付款比例，返回差异与缺失字段；结果必须人工确认。",
             icon="🔎",
+            tool_type="internal",
+        )
+        api.register_tool(
+            tool_name="run_order_exception_workflow",
+            tool_func=run_order_exception_workflow,
+            description="基于真实订单和合同证据创建异常记录，推荐处理路径和回复话术，并等待具名人员审阅；不会自动执行或修改业务订单。",
+            icon="🚨",
             tool_type="internal",
         )
 
