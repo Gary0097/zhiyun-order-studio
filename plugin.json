@@ -1,7 +1,7 @@
 {
   "id": "zhiyun-order-studio",
   "name": "Order Studio",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "type": "app",
   "description": "格式化订单、导入并审查合同，以及验证订单与合同关键字段一致性。",
   "author": "Zhiyun AI",
