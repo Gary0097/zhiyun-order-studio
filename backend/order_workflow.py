@@ -9,6 +9,7 @@ import json
 import os
 import sqlite3
 import uuid
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -41,7 +42,7 @@ class OrderWorkflowStore:
         return connection
 
     def _initialize(self) -> None:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS projects (
                     id TEXT PRIMARY KEY, name TEXT NOT NULL, source_channel TEXT NOT NULL,
@@ -73,7 +74,7 @@ class OrderWorkflowStore:
             raise ValueError("来源必须是 wechat、email 或 ocr")
         project_id, run_id = str(uuid.uuid4()), str(uuid.uuid4())
         now = _now()
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             db.execute("INSERT INTO projects VALUES (?,?,?,?,?,?,?)", (project_id, name or f"客户订单 {now[:10]}", source_channel, source, "processing", now, now))
             db.execute("INSERT INTO runs VALUES (?,?,?,?,?,?,?)", (run_id, project_id, "running", None, None, now, None))
             step_id = str(uuid.uuid4())
@@ -96,7 +97,7 @@ class OrderWorkflowStore:
         return self.get_project(project_id)
 
     def get_project(self, project_id: str) -> dict[str, Any]:
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             project = db.execute("SELECT * FROM projects WHERE id=?", (project_id,)).fetchone()
             if not project:
                 raise KeyError(project_id)
@@ -124,7 +125,7 @@ class OrderWorkflowStore:
         if action == "accept" and (not order or any(order.get(field) in (None, "") for field in required)):
             raise ValueError("必填字段缺失，不能接受")
         status, now = ("accepted" if action == "accept" else "pending_review"), _now()
-        with self._connect() as db:
+        with closing(self._connect()) as db, db:
             if action == "accept" and order:
                 artifact_row = db.execute("SELECT content_json FROM artifacts WHERE id=?", (artifacts[-1]["id"],)).fetchone()
                 content = json.loads(artifact_row["content_json"])
