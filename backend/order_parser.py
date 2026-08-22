@@ -8,6 +8,8 @@ from datetime import date
 from typing import Any
 
 DATE_PATTERN = re.compile(r"(?:交期|交货日期|要求到货|到货日期)\s*[：:]?\s*(\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?)")
+ORDER_DATE_PATTERN = re.compile(r"(?:下单日期|订单日期)\s*[：:]?\s*(\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?)")
+ORDER_NO_PATTERN = re.compile(r"(?:订单号|采购单号|PO号|PO)\s*[：:#]?\s*([A-Za-z0-9_-]{2,50})", re.I)
 QUANTITY_PATTERN = re.compile(r"(?:数量|订购|采购)\s*[：:]?\s*(\d+(?:\.\d+)?)\s*(台|件|套|个|箱|吨|kg|千克)?", re.I)
 CUSTOMER_PATTERN = re.compile(r"(?:客户|公司|采购方|甲方)\s*[：:]?\s*([^，,；;\n]{2,40})")
 PRODUCT_PATTERN = re.compile(r"(?:品名|产品|物料|设备)\s*[：:]?\s*([^，,；;\n]{2,60})")
@@ -31,18 +33,24 @@ def parse_order_text(text: str) -> dict[str, Any]:
     product = PRODUCT_PATTERN.search(source)
     quantity = QUANTITY_PATTERN.search(source)
     delivery = DATE_PATTERN.search(source)
+    order_date = ORDER_DATE_PATTERN.search(source)
+    order_no = ORDER_NO_PATTERN.search(source)
     order = {
+        "order_no": order_no.group(1).strip() if order_no else None,
         "customer_name": customer.group(1).strip() if customer else None,
         "product_name": product.group(1).strip() if product else None,
         "quantity": float(quantity.group(1)) if quantity else None,
         "unit": quantity.group(2) if quantity and quantity.group(2) else None,
         "promised_date": _normalize_date(delivery.group(1)) if delivery else None,
+        "order_date": _normalize_date(order_date.group(1)) if order_date else None,
+        "status": None,
+        "progress": None,
         "source_text": source,
     }
-    required = ["customer_name", "product_name", "quantity", "promised_date"]
+    required = ["order_no", "customer_name", "product_name", "quantity", "order_date", "promised_date"]
     missing = [field for field in required if order[field] in (None, "")]
     evidence = []
-    for field, match in [("customer_name", customer), ("product_name", product), ("quantity", quantity), ("promised_date", delivery)]:
+    for field, match in [("order_no", order_no), ("customer_name", customer), ("product_name", product), ("quantity", quantity), ("order_date", order_date), ("promised_date", delivery)]:
         if match:
             evidence.append({"field": field, "source": match.group(0)})
     return {

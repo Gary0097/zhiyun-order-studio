@@ -1,7 +1,7 @@
 {
   "id": "zhiyun-order-studio",
   "name": "Order Studio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "app",
   "description": "将客户自然语言订单整理为带原文证据和缺失字段提示的待确认标准工单。",
   "author": "Zhiyun AI",
@@ -10,7 +10,7 @@
   "qwenpaw_version": { "min": "2.1.0", "max": "2.2.0" },
   "meta": {
     "pawapp": { "icon": "📋", "category": "order", "entry_page": "/apps/zhiyun-order-studio", "launch_scope": "page" },
-    "permissions": { "chat": true, "storage": false },
+    "permissions": { "chat": true, "storage": true },
     "requires": ["zhiyun-data-core>=0.5.0"]
   }
 }
