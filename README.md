@@ -1,11 +1,11 @@
 # Zhiyun Order Studio
 
-独立 PawApp。v0.4.0 在订单格式化和模板适配基础上推进 PRD #9：从合同文本提取双方、金额、付款、交付、违约和争议条款，保留原文证据，识别空白项、缺失条款和高风险表述，并给出可执行的修改建议。所有结果必须人工确认，且不构成法律意见。
+独立 PawApp。v0.5.0 支持本地导入 TXT、Markdown、DOCX 和文本型 PDF 合同，完成证据化风险初筛；同时对订单与合同的客户、产品、数量、交期、单价和付款比例执行一致性验证。扫描 PDF 仍需先 OCR，所有差异必须人工确认。
 
 ## 验证
 
 ```bash
 python -m unittest discover -s tests -v
-python -m py_compile backend/main.py backend/order_parser.py backend/template_engine.py backend/contract_engine.py
+python -m py_compile backend/main.py backend/order_parser.py backend/template_engine.py backend/contract_engine.py backend/document_parser.py backend/comparison_engine.py
 node --check ui/index.js
 ```
