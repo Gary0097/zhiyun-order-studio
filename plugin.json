@@ -1,7 +1,7 @@
 {
   "id": "zhiyun-order-studio",
-  "name": "Order Studio",
-  "version": "0.7.0",
+  "name": "智能订单中心",
+  "version": "0.7.1",
   "type": "app",
   "description": "持久化格式化真实客户订单并完成证据化审阅、撤销和导出，同时支持合同审查。",
   "author": "Zhiyun AI",
