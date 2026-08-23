@@ -114,7 +114,7 @@
       h("h2", null, "智能订单中心"), h("p", { style: { color: "#667085" } }, "解析客户订单和合同，人工核对后写入统一数据库。"),
       h(antd.Collapse, { style: { marginBottom: 14 }, items: [{ key: "guide", label: "功能引导与使用说明", children: h("div", null,
         h("p", null, "功能介绍：从微信、邮件或 OCR 原文提取标准订单，检查合同风险和订单合同差异，并生成可审阅的异常处理方案。"),
-        h("ol", null, h("li", null, "选择来源并粘贴真实订单原文。"), h("li", null, "点击解析订单，补齐系统明确标出的缺失字段。"), h("li", null, "填写审阅人并接受后写入统一数据中心。"), h("li", null, "合同可直接粘贴或上传 PDF、Word、Markdown、TXT。")),
+        h("ol", null, h("li", null, "选择来源并粘贴真实订单原文。"), h("li", null, "点击解析订单时，原文和运行证据会立即保存到当前工作区，便于恢复和审计。"), h("li", null, "补齐缺失字段并填写审阅人；只有接受后，标准订单才会写入统一数据中心。"), h("li", null, "合同可直接粘贴或上传 PDF、Word、Markdown、TXT。")),
         h(antd.Alert, { type: "warning", showIcon: true, message: "合同风险结果是业务初筛，不构成法律意见；系统不会自动提交或修改原件。" })) }] }),
       h(antd.Select, { value: channel, onChange: setChannel, style: { width: 180, marginBottom: 10 }, options: [{value:"wechat",label:"微信"},{value:"email",label:"邮件"},{value:"ocr",label:"OCR结果"}] }),
       h(antd.Input.TextArea, { value: text, rows: 7, onChange: function (e) { setText(e.target.value); }, placeholder: "粘贴用户提供的真实微信、邮件或OCR结果文本（不会使用示例订单）" }),
