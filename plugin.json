@@ -1,7 +1,7 @@
 {
   "id": "zhiyun-order-studio",
   "name": "智能订单中心",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "type": "app",
   "description": "持久化格式化真实客户订单并完成证据化审阅、撤销和导出，同时支持合同审查。",
   "author": "Zhiyun AI",
