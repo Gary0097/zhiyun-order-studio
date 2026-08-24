@@ -21,7 +21,7 @@ except ImportError:
     from order_parser import parse_order_text
     from exception_engine import build_exception_recommendation
 
-CHANNELS = {"wechat", "email", "ocr"}
+CHANNELS = {"wechat", "email", "ocr", "simulation"}
 
 
 def _now() -> str:
@@ -82,7 +82,7 @@ class OrderWorkflowStore:
         if not source:
             raise ValueError("客户订单原文不能为空")
         if source_channel not in CHANNELS:
-            raise ValueError("来源必须是 wechat、email 或 ocr")
+            raise ValueError("来源必须是 wechat、email、ocr 或 simulation")
         project_id, run_id = str(uuid.uuid4()), str(uuid.uuid4())
         now = _now()
         with closing(self._connect()) as db, db:

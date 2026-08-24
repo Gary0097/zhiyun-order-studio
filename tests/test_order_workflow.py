@@ -12,6 +12,13 @@ COMPLETE = "订单号：PO-9；下单日期：2026年8月22日；客户：海川
 
 
 class OrderWorkflowTests(unittest.TestCase):
+    def test_simulation_channel_is_preserved(self) -> None:
+        project = self.store.create_project(
+            "订单号 A100 客户 测试客户 产品 电机 数量 2 下单日期 2026-08-01 承诺交期 2026-08-30",
+            "simulation",
+        )
+        self.assertEqual(project["source_channel"], "simulation")
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.store = OrderWorkflowStore(Path(self.temp.name) / "workflow.db")
