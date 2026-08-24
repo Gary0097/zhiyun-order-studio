@@ -22,6 +22,21 @@ class WorkflowInterfaceTests(unittest.TestCase):
         for label in ["接受", "撤销", "导出 JSON", "导出 CSV", "创建异常处理方案", "接受异常方案", "重试/恢复", "导出异常方案"]:
             self.assertIn(label, source)
 
+    def test_click_handlers_do_not_pass_react_events_as_text_overrides(self) -> None:
+        source = (Path(__file__).parents[1] / "ui" / "index.js").read_text(encoding="utf-8")
+        self.assertNotIn("onClick: run", source)
+        self.assertNotIn("onClick: reviewContract", source)
+        self.assertNotIn("onClick: createException", source)
+        self.assertIn("onClick: function () { run(); }", source)
+        self.assertIn("onClick: function () { reviewContract(); }", source)
+        self.assertIn("onClick: function () { createException(); }", source)
+
+    def test_simulation_provenance_is_preserved_in_agent_and_exception_flows(self) -> None:
+        source = (Path(__file__).parents[1] / "ui" / "index.js").read_text(encoding="utf-8")
+        self.assertIn('source_type: simulated ? "simulated" : "real"', source)
+        self.assertIn('run(sampleOrder, "simulation").then(function (saved)', source)
+        self.assertIn("createException(sampleOrder, sampleContract, saved.id)", source)
+
 
 if __name__ == "__main__":
     unittest.main()

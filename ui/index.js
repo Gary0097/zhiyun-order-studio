@@ -85,6 +85,8 @@
     var loadingState = React.useState(false), loading = loadingState[0], setLoading = loadingState[1];
     var projectState = React.useState(null), project = projectState[0], setProject = projectState[1];
     var channelState = React.useState("wechat"), channel = channelState[0], setChannel = channelState[1];
+    var orderSimulationState = React.useState(false), orderIsSimulation = orderSimulationState[0], setOrderIsSimulation = orderSimulationState[1];
+    var contractSimulationState = React.useState(false), contractIsSimulation = contractSimulationState[0], setContractIsSimulation = contractSimulationState[1];
     var reviewerState = React.useState(""), reviewer = reviewerState[0], setReviewer = reviewerState[1];
     var message = antd.App.useApp().message;
     var agentOpenState = React.useState(false), agentOpen = agentOpenState[0], setAgentOpen = agentOpenState[1];
@@ -100,11 +102,15 @@
       var usesSimulation = false;
       if (key === "parse" && !text.trim()) {
         setText("客户反馈订单：A202608001，采购伺服电机 5 台，单价 6800 元，承诺 2026-09-15 前交付，联系人张工，电话 13800001234。");
+        setOrderIsSimulation(true);
         usesSimulation = true;
       }
       if (key === "contract" && !contractText.trim()) {
         setContractText("采购合同\n合同编号 HT-2026-088\n甲方（买方）：广州智云\n乙方（卖方）：东莞市某电机公司\n合同金额：人民币 34000 元\n付款条件：预付 30%，货到后 30 日内付清剩余 70%\n交付地点：甲方工厂\n违约条款：延迟交付每日按 0.5% 计算违约金");
+        setContractIsSimulation(true);
+        usesSimulation = true;
       }
+      usesSimulation = usesSimulation || (key === "parse" && orderIsSimulation) || (key === "contract" && contractIsSimulation) || (key === "exception" && (orderIsSimulation || contractIsSimulation));
       agentAdd("user", label || key);
       setAgentBusy(true);
       setTimeout(function () {
@@ -118,7 +124,8 @@
       setAgentBusy(true);
       var key = /合同|风险|条款|差异/.test(text) ? "contract" : /异常|方案|分歧|争议/.test(text) ? "exception" : "parse";
       setTimeout(function () {
-        zyPushAgent({ app_id: "zhiyun-order-studio", kind: key, label: text, summary: agentSummary(), source_type: "real" });
+        var simulated = key === "parse" ? orderIsSimulation : key === "contract" ? contractIsSimulation : (orderIsSimulation || contractIsSimulation);
+        zyPushAgent({ app_id: "zhiyun-order-studio", kind: key, label: text, summary: agentSummary(), source_type: simulated ? "simulated" : "real" });
         setAgentBusy(false);
         agentAdd("bot", "已将问题交给订单智能体，前往「" + (key === "contract" ? "合同要素提取与风险初筛" : key === "exception" ? "异常处理工作台" : "标准工单确认") + "」查看处理建议。", null);
       }, 250);
@@ -134,14 +141,18 @@
       var selectedChannel = overrideChannel || channel;
       if (!src.trim()) { message.warning("请输入真实的客户订单原文"); return; }
       setLoading(true);
-      request("/zhiyun-order-studio/projects", { source_text: src, source_channel: selectedChannel }).then(function (saved) {
+      return request("/zhiyun-order-studio/projects", { source_text: src, source_channel: selectedChannel }).then(function (saved) {
         setProject(saved);
+        setOrderIsSimulation(selectedChannel === "simulation");
         var data = saved.runs[0].artifacts.length ? saved.runs[0].artifacts[0].content : null;
         if (!data) throw new Error(saved.runs[0].error_message || "解析失败");
         setResult(data);
         setDraft(Object.assign({}, data.order, { status: data.order.status || "待排产", progress: data.order.progress == null ? 0 : data.order.progress }));
-        return request("/zhiyun-order-studio/templates/match", { text: src });
-      }).then(setTemplateResult).catch(function (e) { message.error(e.message); }).finally(function () { setLoading(false); });
+        return request("/zhiyun-order-studio/templates/match", { text: src }).then(function (matched) {
+          setTemplateResult(matched);
+          return saved;
+        });
+      }).catch(function (e) { message.error(e.message); return null; }).finally(function () { setLoading(false); });
     }
     function update(name, value) { var next = Object.assign({}, draft); next[name] = value; setDraft(next); }
     function reviewContract(overrideText) {
@@ -160,7 +171,7 @@
         var encoded = String(reader.result).split(",")[1];
         setLoading(true);
         request("/zhiyun-order-studio/contracts/extract-file", { filename: file.name, content_base64: encoded })
-          .then(function (data) { setContractText(data.text); setContractResult(null); setCompareResult(null); message.success("已提取 " + data.characters + " 个字符"); })
+          .then(function (data) { setContractText(data.text); setContractIsSimulation(false); setContractResult(null); setCompareResult(null); message.success("已提取 " + data.characters + " 个字符"); })
           .catch(function (e) { message.error(e.message); })
           .finally(function () { setLoading(false); });
       };
@@ -173,12 +184,12 @@
         .catch(function (e) { message.error(e.message); })
         .finally(function () { setLoading(false); });
     }
-    function createException(overrideOrder, overrideContract) {
+    function createException(overrideOrder, overrideContract, overrideProjectId) {
       var o = overrideOrder !== undefined ? overrideOrder : text;
       var c = overrideContract !== undefined ? overrideContract : contractText;
       if (!o.trim() || !c.trim()) { message.warning("请先填写订单和合同原文"); return; }
       setLoading(true);
-      request("/zhiyun-order-studio/exceptions", { order_text: o, contract_text: c, project_id: project ? project.id : null })
+      return request("/zhiyun-order-studio/exceptions", { order_text: o, contract_text: c, project_id: overrideProjectId !== undefined ? overrideProjectId : (project ? project.id : null) })
         .then(function (data) {
           setExceptionCase(data);
           var first = data.recommendation.recommendations[0];
@@ -217,10 +228,12 @@
     var sampleContract = "采购合同\n合同编号 HT-2026-088\n甲方（买方）：广州智云\n乙方（卖方）：东莞市某电机公司\n合同金额：人民币 34000 元\n付款条件：预付 30%，货到后 30 日内付清剩余 70%\n交付地点：甲方工厂\n违约条款：延迟交付每日按 0.5% 计算违约金";
     function loadOrderExample() {
       setText(sampleOrder);
+      setOrderIsSimulation(true);
       message.success("已载入模拟示例订单，点击「解析订单」即可生成结果");
     }
     function loadContractExample() {
       setContractText(sampleContract);
+      setContractIsSimulation(true);
       message.success("已载入模拟示例合同，点击「提取并检查风险」即可生成结果");
     }
     return h("div", { style: { padding: 28, height: "100%", overflow: "auto", background: "#f7f8fa" } }, h("div", { style: { maxWidth: 1000, margin: "0 auto" } },
@@ -230,9 +243,9 @@
         h("ol", null, h("li", null, "选择来源并粘贴真实订单原文，或点击「载入示例」快速体验。"), h("li", null, "点击解析订单时，原文和运行证据会立即保存到当前工作区，便于恢复和审计。"), h("li", null, "补齐缺失字段并填写审阅人；只有接受后，标准订单才会写入统一数据中心。"), h("li", null, "合同可直接粘贴、上传 PDF/Word/Markdown/TXT，或点击「载入示例」直接体验。")),
         h(antd.Alert, { type: "warning", showIcon: true, message: "合同风险结果是业务初筛，不构成法律意见；系统不会自动提交或修改原件。" })) }] }),
       h(antd.Select, { value: channel, onChange: setChannel, style: { width: 180, marginBottom: 10 }, options: [{value:"wechat",label:"微信"},{value:"email",label:"邮件"},{value:"ocr",label:"OCR结果"}] }),
-      h(antd.Input.TextArea, { value: text, rows: 7, onChange: function (e) { setText(e.target.value); }, placeholder: "粘贴用户提供的真实微信、邮件或OCR结果文本；也可点击「载入示例」快速尝试" }),
+      h(antd.Input.TextArea, { value: text, rows: 7, onChange: function (e) { setText(e.target.value); setOrderIsSimulation(false); }, placeholder: "粘贴用户提供的真实微信、邮件或OCR结果文本；也可点击「载入示例」快速尝试" }),
       h("div", { style: { display: "flex", gap: 10, marginTop: 12 } },
-        h(antd.Button, { type: "primary", loading: loading, onClick: run }, "解析订单"),
+        h(antd.Button, { type: "primary", loading: loading, onClick: function () { run(); } }, "解析订单"),
         h(antd.Button, { onClick: loadOrderExample }, "载入模拟示例"),
         h(antd.Button, { type: "primary", loading: loading, onClick: function () { loadOrderExample(); run(sampleOrder, "simulation"); } }, "载入模拟示例并运行")
       ),
@@ -273,14 +286,14 @@
           h("span", null, "我方身份"),
           h(antd.Select, { value: userPosition, style: { width: 150 }, options: ["采购方", "供应方"].map(function (value) { return { value: value, label: value }; }), onChange: setUserPosition })
         ),
-        h(antd.Input.TextArea, { value: contractText, rows: 7, onChange: function (e) { setContractText(e.target.value); }, placeholder: "粘贴合同文本；PDF/Word可先在工作区文件中提取文本；也可点击「载入示例」快速尝试" }),
+        h(antd.Input.TextArea, { value: contractText, rows: 7, onChange: function (e) { setContractText(e.target.value); setContractIsSimulation(false); }, placeholder: "粘贴合同文本；PDF/Word可先在工作区文件中提取文本；也可点击「载入示例」快速尝试" }),
         h("div", { style: { display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" } },
-          h(antd.Button, { type: "primary", loading: loading, onClick: reviewContract }, "提取并检查风险"),
+          h(antd.Button, { type: "primary", loading: loading, onClick: function () { reviewContract(); } }, "提取并检查风险"),
           h(antd.Button, { onClick: loadContractExample }, "载入模拟示例合同"),
           h(antd.Button, { type: "primary", loading: loading, onClick: function () { loadContractExample(); reviewContract(sampleContract); } }, "载入模拟示例并检查"),
           h(antd.Button, { loading: loading, onClick: compareContract }, "与上方订单核对"),
-          h(antd.Button, { danger: true, loading: loading, onClick: createException }, "创建异常处理方案"),
-          h(antd.Button, { danger: true, loading: loading, onClick: function () { loadOrderExample(); loadContractExample(); if (!project) { run(sampleOrder, "simulation"); } createException(sampleOrder, sampleContract); } }, "载入模拟示例并建异常"),
+          h(antd.Button, { danger: true, loading: loading, onClick: function () { createException(); } }, "创建异常处理方案"),
+          h(antd.Button, { danger: true, loading: loading, onClick: function () { loadOrderExample(); loadContractExample(); run(sampleOrder, "simulation").then(function (saved) { return saved ? createException(sampleOrder, sampleContract, saved.id) : null; }); } }, "载入模拟示例并建异常"),
           h("label", { style: { display: "inline-flex", alignItems: "center", padding: "4px 15px", border: "1px solid #d9d9d9", borderRadius: 6, cursor: "pointer", background: "#fff" } }, "导入合同文件",
             h("input", { type: "file", accept: ".txt,.md,.docx,.pdf", style: { display: "none" }, onChange: function (e) { importContractFile(e.target.files[0]); e.target.value = ""; } })
           )
