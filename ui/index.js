@@ -6,26 +6,6 @@
   function authHeaders() {
     try { var t = window.localStorage.getItem("zhiyun_token"); return t ? { Authorization: "Bearer " + t } : {}; } catch (e) { return {}; }
   }
-  function syncToDataCore(order) {
-    /* 跨应用数据契约（PRD §9/§19.11）：接受的订单同步统一数据中心 orders 实体，
-       Data Studio 的看板即读取同一份记录。失败不阻断审阅流程，仅提示。 */
-    var keys = ["order_no", "customer_name", "product_name", "quantity", "order_date", "promised_date", "status", "progress"];
-    var row = {};
-    keys.forEach(function (k) { if (order[k] !== null && order[k] !== undefined && order[k] !== "") row[k] = order[k]; });
-    if (!row.order_no || !row.customer_name) return;
-    Q.host.fetch("/zhiyun-data-core/imports/orders/commit?data_mode=production", {
-      method: "POST",
-      headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
-      body: JSON.stringify({ rows: [row], source_name: "order-studio-" + (project && project.id ? project.id : "order") })
-    }).then(function (response) {
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      return response.json();
-    }).then(function (batch) {
-      message.success("订单已同步统一数据中心（正式批次，Data Studio 可读）");
-    }).catch(function (e) {
-      message.warning("审阅已接受；同步数据中心未完成：" + (e.message || "未知原因"));
-    });
-  }
   function request(path, body, method) {
     return Q.host.fetch(path, { method: method || "POST", headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()), body: body === undefined ? undefined : JSON.stringify(body) }).then(function (response) {
       return response.json().then(function (data) { if (!response.ok) throw new Error(data.detail || "操作失败"); return data; });
@@ -233,12 +213,34 @@
         .catch(function (e) { message.error(e.message); });
     }
     function confirm() {
+    function syncToDataCore(order, projectId, notify) {
+    /* 跨应用数据契约（PRD §9/§19.11）：真实渠道接受的订单同步统一数据中心 orders
+       实体（production），Data Studio 看板读取同一记录；模拟示例不同步正式库。 */
+    if (orderIsSimulation) return;
+    var keys = ["order_no", "customer_name", "product_name", "quantity", "order_date", "promised_date", "status", "progress"];
+    var row = {};
+    keys.forEach(function (k) { if (order[k] !== null && order[k] !== undefined && order[k] !== "") row[k] = order[k]; });
+    if (!row.order_no || !row.customer_name) return;
+    Q.host.fetch("/zhiyun-data-core/imports/orders/commit?data_mode=production", {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+      body: JSON.stringify({ rows: [row], source_name: "order-studio-" + (projectId || "order") })
+    }).then(function (response) {
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      return response.json();
+    }).then(function (batch) {
+      notify.success("订单已同步统一数据中心（正式批次，Data Studio 可读）");
+    }).catch(function (e) {
+      notify.warning("审阅已接受；同步数据中心未完成：" + (e.message || "未知原因"));
+    });
+  }
+
       var missing = fields.filter(function (item) { return item[2] && (draft[item[0]] === null || draft[item[0]] === undefined || draft[item[0]] === ""); });
       if (missing.length) { message.warning("请补齐：" + missing.map(function (item) { return item[1]; }).join("、")); return; }
       if (!reviewer.trim()) { message.warning("请输入审阅人"); return; }
       setLoading(true);
       request("/zhiyun-order-studio/projects/" + project.id + "/reviews", { action: "accept", reviewer: reviewer, order: draft })
-        .then(function (saved) { setProject(saved); message.success("审阅已接受，可以导出"); syncToDataCore(draft); })
+        .then(function (saved) { setProject(saved); message.success("审阅已接受，可以导出"); syncToDataCore(draft, project && project.id, message); })
         .catch(function (e) { message.error(e.message); }).finally(function () { setLoading(false); });
     }
     function revoke() {
